@@ -32,12 +32,27 @@ import (
 	"unsafe"
 )
 
+// S     (1 bit) : Start bit
+// P     (1 bit) : Stop bit
+// Rd/Wr (1 bit) : Read/Write bit. Rd equals 1, Wr equals 0.
+// A, NA (1 bit) : Accept and reverse accept bit.
+// Addr  (7 bits): I2C 7 bit address. Note that this can be expanded as usual to
+//                 get a 10 bit I2C address.
+// Comm  (8 bits): Command byte, a data byte which often selects a register on
+//                 the device.
+// Data  (8 bits): A plain data byte. Sometimes, I write DataLow, DataHigh
+//                 for 16 bit data.
+// Count (8 bits): A data byte containing the length of a block operation.
+// {..}: Data sent by I2C slave, as opposed to data sent by master.
 type I2CBus interface {
 	// ReadByte reads a byte from the given address.
+	// S Addr Rd {A} {value} NA P
 	ReadByte(addr byte) (value byte, err error)
 	// WriteByte writes a byte to the given address.
+	// S Addr Wr {A} value {A} P
 	WriteByte(addr, value byte) error
 	// WriteBytes writes a slice bytes to the given address.
+	// S Addr Wr {A} value[0] {A} value[1] {A} ... {A} value[n] {A} NA P
 	WriteBytes(addr byte, value []byte) error
 	// ReadFromReg reads n (len(value)) bytes from the given address and register.
 	ReadFromReg(addr, reg byte, value []byte) error
@@ -56,12 +71,10 @@ type I2CBus interface {
 }
 
 const (
-	delay = 20
-
+	delay    = 1      // delay in milliseconds
 	slaveCmd = 0x0703 // Cmd to set slave address
 	rdrwCmd  = 0x0707 // Cmd to read/write data together
-
-	rd = 0x0001
+	rd       = 0x0001
 )
 
 type i2c_msg struct {
@@ -85,6 +98,7 @@ type i2cBus struct {
 	initialized bool
 }
 
+// Returns New i2c interfce on bus use i2cdetect to find out which bus you to use
 func NewI2CBus(l byte) I2CBus {
 	return &i2cBus{l: l}
 }
@@ -119,6 +133,7 @@ func (b *i2cBus) setAddress(addr byte) error {
 	return nil
 }
 
+// ReadByte reads a byte from the given address.
 func (b *i2cBus) ReadByte(addr byte) (byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -141,6 +156,7 @@ func (b *i2cBus) ReadByte(addr byte) (byte, error) {
 	return bytes[0], nil
 }
 
+// WriteByte writes a byte to the given address.
 func (b *i2cBus) WriteByte(addr, value byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -162,6 +178,7 @@ func (b *i2cBus) WriteByte(addr, value byte) error {
 	return err
 }
 
+// WriteBytes writes a slice bytes to the given address.
 func (b *i2cBus) WriteBytes(addr byte, value []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -190,6 +207,7 @@ func (b *i2cBus) WriteBytes(addr byte, value []byte) error {
 	return nil
 }
 
+// ReadFromReg reads n (len(value)) bytes from the given address and register.
 func (b *i2cBus) ReadFromReg(addr, reg byte, value []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -227,6 +245,7 @@ func (b *i2cBus) ReadFromReg(addr, reg byte, value []byte) error {
 	return nil
 }
 
+// ReadByteFromReg reads a byte from the given address and register.
 func (b *i2cBus) ReadByteFromReg(addr, reg byte) (byte, error) {
 	buf := make([]byte, 1)
 	if err := b.ReadFromReg(addr, reg, buf); err != nil {
@@ -235,6 +254,7 @@ func (b *i2cBus) ReadByteFromReg(addr, reg byte) (byte, error) {
 	return buf[0], nil
 }
 
+// Read single word from register first byte is MSB
 func (b *i2cBus) ReadWordFromReg(addr, reg byte) (uint16, error) {
 	buf := make([]byte, 2)
 	if err := b.ReadFromReg(addr, reg, buf); err != nil {
@@ -243,6 +263,16 @@ func (b *i2cBus) ReadWordFromReg(addr, reg byte) (uint16, error) {
 	return uint16((uint16(buf[0]) << 8) | uint16(buf[1])), nil
 }
 
+// Read single word from register first byte is LSB
+func (b *i2cBus) ReadWordFromRegLSBF(addr, reg byte) (uint16, error) {
+	buf := make([]byte, 2)
+	if err := b.ReadFromReg(addr, reg, buf); err != nil {
+		return 0, err
+	}
+	return uint16((uint16(buf[1]) << 8) | uint16(buf[0])), nil
+}
+
+//Write []byte word to resgister
 func (b *i2cBus) WriteToReg(addr, reg byte, value []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -277,6 +307,7 @@ func (b *i2cBus) WriteToReg(addr, reg byte, value []byte) error {
 	return nil
 }
 
+// Write single Byte to register
 func (b *i2cBus) WriteByteToReg(addr, reg, value byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -312,6 +343,7 @@ func (b *i2cBus) WriteByteToReg(addr, reg, value byte) error {
 	return nil
 }
 
+// Write Single Word to Register
 func (b *i2cBus) WriteWordToReg(addr, reg byte, value uint16) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -348,6 +380,7 @@ func (b *i2cBus) WriteWordToReg(addr, reg byte, value uint16) error {
 	return nil
 }
 
+// Close i2c file
 func (b *i2cBus) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
