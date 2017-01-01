@@ -48,6 +48,9 @@ type I2CBus interface {
 	// ReadByte reads a byte from the given address.
 	// S Addr Rd {A} {value} NA P
 	ReadByte(addr byte) (value byte, err error)
+	
+	//ReadBytes reads len byte from given address.
+	ReadBytes(addr byte,len int) (value []byte, err error)
 	// WriteByte writes a byte to the given address.
 	// S Addr Wr {A} value {A} P
 	WriteByte(addr, value byte) error
@@ -155,6 +158,31 @@ func (b *i2cBus) ReadByte(addr byte) (byte, error) {
 
 	return bytes[0], nil
 }
+
+
+// ReadByte reads a byte from the given address.
+func (b *i2cBus) ReadBytes(addr byte, len int) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.init(); err != nil {
+		return nil, err
+	}
+
+	if err := b.setAddress(addr); err != nil {
+		return nil, err
+	}
+
+	bytes := make([]byte, len)
+	n, _ := b.file.Read(bytes)
+
+	if n != len {
+		return nil, fmt.Errorf("i2c: Unexpected number (%v) of bytes read", n)
+	}
+
+	return bytes, nil
+}
+
 
 // WriteByte writes a byte to the given address.
 func (b *i2cBus) WriteByte(addr, value byte) error {
