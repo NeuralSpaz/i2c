@@ -60,6 +60,7 @@ type I2CBus interface {
 	ReadByteFromReg(addr, reg byte) (value byte, err error)
 	// ReadU16FromReg reads a unsigned 16 bit integer from the given address and register.
 	ReadWordFromReg(addr, reg byte) (value uint16, err error)
+	ReadWordFromRegLSBF(addr, reg byte) (value uint16, err error)
 	// WriteToReg writes len(value) bytes to the given address and register.
 	WriteToReg(addr, reg byte, value []byte) error
 	// WriteByteToReg writes a byte to the given address and register.
