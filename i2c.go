@@ -29,7 +29,6 @@ import (
 	"reflect"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -219,17 +218,23 @@ func (b *i2cBus) WriteBytes(addr byte, value []byte) error {
 		return err
 	}
 
-	for i := range value {
-		n, err := b.file.Write([]byte{value[i]})
+	outbuf := value
 
-		if n != 1 {
-			return fmt.Errorf("i2c: Unexpected number (%v) of bytes written in WriteBytes", n)
-		}
-		if err != nil {
-			return err
-		}
+	hdrp := (*reflect.SliceHeader)(unsafe.Pointer(&outbuf))
 
-		time.Sleep(delay * time.Millisecond)
+	var message i2c_msg
+	message.addr = uint16(addr)
+	message.flags = 0
+	message.len = uint16(len(outbuf))
+	message.buf = uintptr(unsafe.Pointer(&hdrp.Data))
+
+	var packets i2c_rdwr_ioctl_data
+
+	packets.msgs = uintptr(unsafe.Pointer(&message))
+	packets.nmsg = 1
+
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, b.file.Fd(), rdrwCmd, uintptr(unsafe.Pointer(&packets))); errno != 0 {
+		return syscall.Errno(errno)
 	}
 
 	return nil
