@@ -211,11 +211,11 @@ func (b *i2cBus) WriteBytes(addr byte, value []byte) error {
 	defer b.mu.Unlock()
 
 	if err := b.init(); err != nil {
-		return err
+		return errors.New("could not initialise:" + err.Error())
 	}
 
 	if err := b.setAddress(addr); err != nil {
-		return err
+		return errors.New("could not set adress:" + err.Error())
 	}
 
 	outbuf := value
