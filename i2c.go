@@ -23,6 +23,7 @@
 package i2c
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -54,6 +55,7 @@ type I2CBus interface {
 	// WriteBytes writes a slice bytes to the given address.
 	// S Addr Wr {A} value[0] {A} value[1] {A} ... {A} value[n] {A} NA P
 	WriteBytes(addr byte, value []byte) error
+	ReadBytes(addr byte, rxbuff []byte) error
 	// ReadFromReg reads n (len(value)) bytes from the given address and register.
 	ReadFromReg(addr, reg byte, value []byte) error
 	// ReadByteFromReg reads a byte from the given address and register.
@@ -155,6 +157,31 @@ func (b *i2cBus) ReadByte(addr byte) (byte, error) {
 	}
 
 	return bytes[0], nil
+}
+
+func (b *i2cBus) ReadBytes(addr byte, rx []byte) error {
+	if len(rx) == 0 || rx == nil {
+		return errors.New("rx buffer must be initiated before calling")
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if err := b.init(); err != nil {
+		return err
+	}
+
+	if err := b.setAddress(addr); err != nil {
+		return err
+	}
+
+	// bytes := make([]byte, len(rx))
+	n, _ := b.file.Read(rx)
+
+	if n != len(rx) {
+		return fmt.Errorf("i2c: Unexpected number (%v) of bytes read", n)
+	}
+
+	return nil
 }
 
 // WriteByte writes a byte to the given address.
