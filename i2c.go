@@ -44,6 +44,7 @@ import (
 //                 for 16 bit data.
 // Count (8 bits): A data byte containing the length of a block operation.
 // {..}: Data sent by I2C slave, as opposed to data sent by master.
+// opts ...func(*AS7276) error
 type I2CBus interface {
 	// ReadByte reads a byte from the given address.
 	// S Addr Rd {A} {value} NA P
@@ -56,7 +57,7 @@ type I2CBus interface {
 	WriteBytes(addr byte, value []byte) error
 	ReadBytes(addr byte, rxbuff []byte) error
 	// ReadFromReg reads n (len(value)) bytes from the given address and register.
-	ReadFromReg(addr, reg byte, value []byte) error
+	ReadFromReg(addr, reg byte, value []byte, mode ...func(i I2CBus) error) error
 	// ReadByteFromReg reads a byte from the given address and register.
 	ReadByteFromReg(addr, reg byte) (value byte, err error)
 	// ReadU16FromReg reads a unsigned 16 bit integer from the given address and register.
@@ -70,13 +71,20 @@ type I2CBus interface {
 	WriteWordToReg(addr, reg byte, value uint16) error
 	// Close releases the resources associated with the bus.
 	Close() error
+	setMode(write uint16, read uint16)
 }
 
 const (
-	delay    = 1      // delay in milliseconds
-	slaveCmd = 0x0703 // Cmd to set slave address
-	rdrwCmd  = 0x0707 // Cmd to read/write data together
-	rd       = 0x0001
+	delay     = 1      // delay in milliseconds
+	slaveCmd  = 0x0703 // Cmd to set slave address
+	rdrwCmd   = 0x0707 // Cmd to read/write data together
+	rd        = 0x0001
+	revlen    = 0x0400 //length will be first received byte
+	nordack   = 0x0800
+	ignoreack = 0x1000
+	revaddr   = 0x2000
+	nostart   = 0x4000
+	stop      = 0x8000
 )
 
 type i2c_msg struct {
@@ -98,6 +106,8 @@ type i2cBus struct {
 	mu   sync.Mutex
 
 	initialized bool
+	writemode   uint16
+	readmode    uint16
 }
 
 // Returns New i2c interfce on bus use i2cdetect to find out which bus you to use
@@ -133,6 +143,20 @@ func (b *i2cBus) setAddress(addr byte) error {
 	}
 
 	return nil
+}
+
+// sets the read write mode for funcs
+func (b *i2cBus) setMode(write uint16, read uint16) {
+	b.writemode = write
+	b.readmode = read
+}
+
+// RepeatedStart continues Frame without start?
+func RepeatedStart(i I2CBus) func(I2CBus) error {
+	return func(i I2CBus) error {
+		i.setMode(0, rd|revlen)
+		return nil
+	}
 }
 
 // ReadByte reads a byte from the given address.
@@ -241,9 +265,16 @@ func (b *i2cBus) WriteBytes(addr byte, value []byte) error {
 }
 
 // ReadFromReg reads n (len(value)) bytes from the given address and register.
-func (b *i2cBus) ReadFromReg(addr, reg byte, value []byte) error {
+func (b *i2cBus) ReadFromReg(addr, reg byte, value []byte, mode ...func(I2CBus) error) error {
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	for _, fn := range mode {
+		if err := fn(b); err != nil {
+			return err
+		}
+	}
 
 	if err := b.init(); err != nil {
 		return err
@@ -257,15 +288,18 @@ func (b *i2cBus) ReadFromReg(addr, reg byte, value []byte) error {
 
 	var messages [2]i2c_msg
 	messages[0].addr = uint16(addr)
-	messages[0].flags = 0
+	messages[0].flags = b.writemode
 	messages[0].len = 1
 	messages[0].buf = uintptr(unsafe.Pointer(&reg))
 
 	messages[1].addr = uint16(addr)
-	messages[1].flags = rd
+	messages[1].flags = b.readmode
 	messages[1].len = uint16(len(value))
 	messages[1].buf = uintptr(unsafe.Pointer(hdrp.Data))
 
+	//restore defaults
+	b.writemode = 0
+	b.readmode = rd
 	var packets i2c_rdwr_ioctl_data
 
 	packets.msgs = uintptr(unsafe.Pointer(&messages))
